@@ -1,0 +1,105 @@
+---
+title: "Combined data for all age groups by sex - Scotland segmented regression"
+output: html_notebook
+---
+# Introduction
+
+To undertake segmented regression (one and two break) for Scotland age group under 75 years. Employs full data range available (Q1 1990-Q2 2018)
+
+* Load packages
+* Run existing analyses - observed and predicted values from one break segmented model
+* Bind data with age groups
+
+## Load packages
+
+```{r}
+#install.packages("pacman")
+pacman::p_load(
+  tidyverse,
+  segmented,
+  plotly,
+  dplyr,
+  readr,
+  ggplot2,
+  broom,
+  tidyr
+               )
+```
+
+#View data sets
+```{r}
+obs_fit_both_2018
+obs_fit_both_O75
+obs_fit_both_U75
+```
+#Tidy all ages
+```{r}
+obs_fit_allage_tidy <- 
+  obs_fit_both_2018 %>%
+  select(time, observed, predicted, agegroup, sex)%>%
+  mutate(sex=as.character(sex))
+obs_fit_allage_tidy
+
+```
+
+
+#Bind data under and over 75
+```{r}
+ obs_fit_both_U75 %>% 
+      select(
+        time, observed, predicted, agegroup, sex)%>%
+  mutate(sex=as.character(sex)) %>%
+  bind_rows(
+    obs_fit_both_O75 %>% 
+      select(
+        time, observed, predicted, agegroup, sex)%>%
+      mutate(sex=as.character(sex)) ) -> obs_fit_agegroups 
+  
+obs_fit_agegroups
+```
+
+#Bind data age groups and all age
+```{r}
+obs_fit_agegroups %>% 
+  select(
+    time, observed, predicted, agegroup, sex
+  ) %>% 
+  bind_rows(
+    obs_fit_allage_tidy %>% 
+      select(
+        time, observed, predicted, agegroup, sex
+      ) 
+  ) -> obs_fit_allagegroups
+
+obs_fit_allagegroups
+```
+
+#Plot all age groups - Male
+```{r}
+obs_fit_allagegroups %>%
+  filter(sex == "M") %>%
+     ggplot(
+    aes(x = time)
+  ) + 
+  geom_point(
+    aes(y = observed, color = agegroup)
+  ) +
+  geom_line(y = predicted, color = agegroup)
+
+
+```
+
+
+#Plot all age groups - Female
+```{r}
+obs_fit_allagegroups %>%
+  filter(sex == "F") %>%
+     ggplot(
+    aes(x = time)
+  ) + 
+  geom_point(
+    aes(y = observed, color = agegroup)
+  ) 
+
+
+```

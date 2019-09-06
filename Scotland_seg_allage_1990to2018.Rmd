@@ -1,0 +1,604 @@
+---
+title: 'Segmented regression of age-standardised mortality rates - Scotland all-ages
+  Q1 1990 to Q2 2018'
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  word_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+To undertake segmented regression (one and two-break models) for Scotland, all-ages, age-standardised mortality rates(ASMR). Employs full data range available (Q1 1990-Q2 2018). Quarterly annual ASMR employ the 2013 European Standard Popualtion, and were provided by National Records for Scotland. 
+
+Contents:
+
+* Load packages, load data, tidy data labels, and convert dates to identifiable quarters
+* Plot observed data
+* Generate, view and plot linear model
+* Run Davies test to identify and test signifcance of single break point
+* Generate and view one breakpoint segmented model
+* Extract breakpoints and confidence intervals
+* Plot one breakpoint model
+* Generate two break segmented model
+* Use AIC and BIC to compare fit of one and two break models
+* Plot two breakpoint model
+* Error bar plot as alternative approach to presenting breakpoint and confidence intervals
+
+#Summary of findings
+
+This analysis provides a means of assessing whether there has been a significant change in the trend of age-standardised mortality rates for men and women in Scotland. 
+
+Both one and two-breakpoint models identify Jan-Dec 2013 for men, and Jul 2013-Jun 2014 for women, as the most significant breakpoint. The two breakpoint model additionally identifies Jan-Dec 1993 as an additional breakpoint for both sexes, with the later female breakpoint unchanged (Jul 2013-Jun 2014) and the later male breakpoint occuring one year earlier (Jan-Dec 2012) . The two breakpoint model is a better fit. 
+
+A test of statistical significance (Davies test) is provided for the one-break model, and 95% confidence intervals for both models. 
+
+#Analytical steps, code, and results:
+
+## Load packages
+
+```{r}
+rm(list = ls())
+#install.packages("pacman")
+pacman::p_load(
+  tidyverse,
+  segmented,
+  plotly,
+  dplyr,
+  readr,
+  ggplot2,
+  broom,
+  tidyr
+               )
+```
+
+## Load data and assign to object "data"
+
+```{r}
+data <- read.csv("Data/QuarterlyASMR1990_2018_allages.csv")
+data
+```
+
+#Tidy periods into quarters, select all age rate, filter to M&F only
+
+Quarters assigned as follows: .125 = quarter 1, .375 = quarter 2, .625 = quarter 3, .875 = quarter 4.
+Quarter indicates last quarter in annual period i.e. ASMR for the year that includes that quarter and three preceding quarters. 
+
+```{r}
+tidied_allagerates_2018 <-
+  data %>%
+  separate(Quarter, into = c("year","quarter"), sep = 4) %>% 
+  mutate(
+   year = as.double(year),
+   quarter = as.double(quarter)
+  ) %>% 
+  mutate(
+    time = year + (quarter / 4) - 0.125
+  ) %>% 
+  rename(sex=Sex)%>%
+  select(time, sex, Rate) %>%
+  filter(sex!="All")
+  
+
+tidied_allagerates_2018
+
+```
+
+
+#Plot quarterly-rolling annual age-standardised mortality rates by time
+
+Demonstrates overall reduction in mortality rates over the period, more steeply among men than women. There is variability in the trend, particularly before 2003, and after 2011.
+
+```{r}
+plot<-ggplot(tidied_allagerates_2018,aes(x=time,y=Rate, color=sex))+geom_line(size=1.0001, show.legend = TRUE)+theme(text=element_text(size=14))
+plot
+```
+
+##Generate linear model for both sexes
+
+```{r}
+tidied_allagerates_2018 %>% 
+  rename(rate = Rate) %>%
+  filter(sex == "M") -> allagemale
+  lm(rate ~ time, data = allagemale) -> lmod_male_2018
+
+tidied_allagerates_2018 %>%
+  rename(rate = Rate) %>%
+  filter(sex == "F") -> allagefemale
+  lm(rate ~ time, data = allagefemale) -> lmod_female_2018
+
+```
+
+##View linear model 
+
+```{r}
+summary (lmod_male_2018)
+summary (lmod_female_2018)
+
+```
+  
+## Get trend line of linear model fit to whole timeseries 
+  
+A linear trend line fitted to the whole data series demonstrates the overall decline in mortality rates, and the steeper decline in men than women. For both sexes the recent observed data lie above the linear trend line. 
+
+```{r}
+my.coeftrendlinemale_2018 <- coef(lmod_male_2018)
+my.coeftrendlinefemale_2018 <- coef(lmod_female_2018)
+addtrendline <- plot + geom_abline(intercept = my.coeftrendlinemale_2018[1], col="Blue", size=1.0001,
+                                       slope = my.coeftrendlinemale_2018[2], 
+                                       aes(colour = "Overall"))+
+  geom_abline(intercept = my.coeftrendlinefemale_2018[1], col="Blue", size=1.0001,
+                                       slope = my.coeftrendlinefemale_2018[2], 
+                                       aes(colour = "Overall"))
+addtrendline
+```
+
+# Segmented regression
+
+## Davies test to test for the significance of breakpoint at each of the 114 possible data points
+
+This identifies 2013.8 as the most significant breakpoint for men, hence within quarter 4 2013, indicating the year Jan 2013-Dec 2013. For women the result is 2014.3, hence within quarter 2 2014, indicating the year July 2013-June 2014. 
+
+```{r}
+davies_allmale_2018 = davies.test(lmod_male_2018, ~time, k=111)
+davies_allfemale_2018 = davies.test(lmod_female_2018, ~time, k=111)
+davies_allmale_2018
+davies_allfemale_2018
+```
+
+## Segmented regression - one breakpoint model
+
+The same breakpoint is identifed for men and women as with the Davies test. 
+
+```{r}
+ my.seg_male_2018<-segmented(  lmod_male_2018, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ my.seg_female_2018<-segmented(  lmod_female_2018, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ 
+summary(my.seg_male_2018)
+summary(my.seg_female_2018)
+```
+
+##Extract breakpoint and 95% confidence intervals for one break model
+
+The standard error is used to calcuate an upper and lower 95% confidence intervals. These are presented below. 
+
+```{r}
+breakpointmale_2018 <- my.seg_male_2018$psi[, 2]
+breakpointfemale_2018 <- my.seg_female_2018$psi[, 2]
+breakpoint_SEmale_2018 <- my.seg_male_2018$psi[, 3]
+breakpoint_SEfemale_2018 <- my.seg_female_2018$psi[, 3]
+breakpoint_low_CImale_2018 <- breakpointmale_2018 - (breakpoint_SEmale_2018*1.96)
+breakpoint_up_CImale_2018 <- breakpointmale_2018 + (breakpoint_SEmale_2018*1.96)
+breakpoint_low_CIfemale_2018 <- breakpointfemale_2018 - (breakpoint_SEfemale_2018*1.96)
+breakpoint_up_CIfemale_2018 <- breakpointfemale_2018 + (breakpoint_SEfemale_2018*1.96)
+
+breakpointmale_2018
+breakpoint_low_CImale_2018
+breakpoint_up_CImale_2018
+breakpointfemale_2018
+breakpoint_low_CIfemale_2018
+breakpoint_up_CIfemale_2018
+``` 
+
+
+##Generate and plot predicted values from one break model
+
+The 'fitted' function is used to predict values for ASMR based on the one break segmented regression model. These predicted values are plotted below. 
+
+```{r}
+tidied_allagerates_2018 %>%
+  filter(sex == "M") %>% 
+  mutate(
+    onebreak_fit = fitted(
+      my.seg_male_2018 
+     
+      )
+    ) -> malefitted_2018
+
+tidied_allagerates_2018 %>%
+  filter(sex == "F") %>% 
+  mutate(
+    onebreak_fit = fitted(
+      my.seg_female_2018 
+
+      )
+    ) -> femalefitted_2018
+
+plot(malefitted_2018$onebreak_fit)
+plot(femalefitted_2018$onebreak_fit)
+```
+
+##Combine male and female observed and predicted values in single data frame
+
+```{r}
+femalefitted_2018 %>% 
+  select(
+    time, sex, observed = Rate,
+    predicted = onebreak_fit
+  ) %>% 
+  bind_rows(
+    malefitted_2018 %>% 
+      select(
+        time, sex, observed = Rate,
+        predicted = onebreak_fit
+      ) 
+  ) -> obs_fit_both_2018
+
+age <- "all"
+obs_fit_both_2018$agegroup = age
+
+obs_fit_both_2018
+```
+
+##Plot observed values with linear and segmented models 
+
+The observed data are presented as data points, and the lines indicate the predicted values, according to the one break segmented model. 
+
+```{r}
+obs_fit_both_2018 %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+    aes (y=observed)) +
+  geom_line ( 
+    aes (y=predicted)) +
+  stat_smooth(method="lm",se=F,linetype="dashed",
+    aes (y=observed)
+  )
+```
+
+##Get segmented regression coefficients 
+
+Coefficients are used in order to be able to plot a continuation of the pre-break point trend. This differs slightly from the overall linear model, as it does not include the post-breakpoint data. 
+
+```{r}
+coef(my.seg_male_2018)
+coef(my.seg_female_2018)
+
+# Get coeffiencents male
+  b0_aspec_m_2018 <- coef(my.seg_male_2018)[[1]]
+  b1_aspec_m_2018 <- coef(my.seg_male_2018)[[2]]
+  c1_aspec_m_2018 <- coef(my.seg_male_2018)[[2]] + coef(my.seg_male_2018)[[3]]
+  
+  break1_aspec_m_2018 <- my.seg_male_2018$psi[[2]]
+  
+# Get coefficients female
+  b0_aspec_f_2018 <- coef(my.seg_female_2018)[[1]]
+  b1_aspec_f_2018 <- coef(my.seg_female_2018)[[2]]
+  c1_aspec_f_2018 <- coef(my.seg_female_2018)[[2]] + coef(my.seg_female_2018)[[3]]
+  
+  break1_aspec_f <- my.seg_female_2018$psi[[2]]
+
+```
+
+##Annotated plot of observed data, segmented model, and continutation of pre-breakpoint trend
+
+
+```{r}
+  
+ p <- obs_fit_both_2018 %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+   aes (y=observed), alpha=0.4) +
+  geom_line (
+   aes (y=predicted), size=1) +
+  geom_abline(intercept = b0_aspec_m_2018, slope = b1_aspec_m_2018, color="#00BFC4", linetype="dashed") +
+   geom_abline(intercept = b0_aspec_f_2018, slope = b1_aspec_f_2018, color="#F8766D", linetype= "dashed") +
+    ylim(0,2300)+
+    labs(x="Year", y="Age-standardised mortality rate", title = 
+       "Age-standardised quarterly rolling annual mortality rates 
+        and fitted segmented model, males and females, all ages, 
+        Scotland, 1990 to 2017") +
+    scale_x_continuous (breaks=c(1990, 1994, 1998, 2002, 2006, 2010, 2014, 2018))+
+      geom_vline(xintercept = my.seg_male_2018[["psi"]][[2]], color = "#00BFC4", linetype="dotdash")+
+   geom_vline(xintercept = my.seg_female_2018[["psi"]][[2]], color = "#F8766D", linetype="dotdash") +
+   annotate(geom="text", x=2011, y=250, label="Male\nbreakpoint\nOct 2012-\n Sep 2013 ")+
+  annotate(geom="text", x=2017, y=250, label="Female\nbreakpoint\nJuly 2013-\nJune2014")
+   
+ 
+plot(p)
+
+ 
+   ggsave (
+    "Figures/Segmentedplot_Scotland_Allagesto2018.png", height=15, width=20, units="cm")
+
+```
+
+## Segmented regression with two breakpoints  
+
+Allowing the model to break at two points identifies a breakpoint in quarter 4 of 1993 for both men and women, indicating the year Jan-Dec 1993. The time period identified for the later breakpoint is unchanged for females (Q2 2014), but occurs one year earlier for males (Q4 2012).
+
+```{r}
+my.seg_male2_2018 <-segmented( lmod_male_2018, seg_rate.Z = ~timepoint, psi = NA, control = seg.control(K=2))
+my.seg_female2_2018<- segmented(lmod_female_2018, seg_rate.Z = ~timepoint, psi = NA, control = seg.control(K=2))
+
+summary(my.seg_male2_2018)
+summary(my.seg_female2_2018)
+```
+
+##AIC and BIC to compare one and two break models
+
+The lower AIC and BIC indicate that the two break models are a better fit than the one break model for both males and females. 
+
+```{r}
+AIC(my.seg_male_2018, my.seg_male2_2018)
+AIC(my.seg_female_2018, my.seg_female2_2018)
+BIC(my.seg_male_2018, my.seg_male2_2018)
+BIC(my.seg_female_2018, my.seg_female2_2018)
+```
+
+##Generate and plot predicted values for two break model
+
+
+```{r}
+tidied_allagerates_2018 %>%
+  filter(sex == "M") %>% 
+  mutate(
+    twobreak_fit = fitted(
+      my.seg_male2_2018 
+     
+      )
+    ) -> malefitted2_2018
+
+tidied_allagerates_2018 %>%
+  filter(sex == "F") %>% 
+  mutate(
+    twobreak_fit = fitted(
+      my.seg_female2_2018 
+
+      )
+    ) -> femalefitted2_2018
+plot(malefitted2_2018$twobreak_fit)
+plot(femalefitted2_2018$twobreak_fit)
+```
+
+##Combine male and female observed and predicted values for two break model
+
+```{r}
+femalefitted2_2018 %>% 
+  select(
+    time, sex, observed = Rate,
+    predicted = twobreak_fit
+  ) %>% 
+  bind_rows(
+    malefitted2_2018 %>% 
+      select(
+        time, sex, observed = Rate,
+        predicted = twobreak_fit
+      ) 
+  ) -> obs_fit_both_2018_2break
+
+age <- "all"
+obs_fit_both_2018_2break$agegroup = age
+
+obs_fit_both_2018_2break
+```
+
+#Extract breakpoint and calcuate 95% confidence intervals for two break model
+
+```{r}
+#CI for first male breakpoint
+breakpoint1male_2018_2break <- my.seg_male2_2018$psi[3]
+breakpoint1_SEmale_2018_2break <- my.seg_male2_2018$psi[5]
+breakpoint1male_lowCI_2018_2break <- breakpoint1male_2018_2break - (breakpoint1_SEmale_2018_2break*1.96)
+breakpoint1male_upCI_2018_2break <- breakpoint1male_2018_2break + (breakpoint1_SEmale_2018_2break*1.96)
+
+breakpoint1male_2018_2break
+breakpoint1male_lowCI_2018_2break
+breakpoint1male_upCI_2018_2break
+```
+```{r}
+#CI for second male breakpoint
+breakpoint2male_2018_2break <- my.seg_male2_2018$psi[4]
+breakpoint2_SEmale_2018_2break <- my.seg_male2_2018$psi[6]
+breakpoint2male_lowCI_2018_2break <- breakpoint2male_2018_2break - (breakpoint2_SEmale_2018_2break*1.96)
+breakpoint2male_upCI_2018_2break <- breakpoint2male_2018_2break + (breakpoint2_SEmale_2018_2break*1.96)
+
+breakpoint2male_2018_2break
+breakpoint2male_lowCI_2018_2break
+breakpoint2male_upCI_2018_2break
+```
+
+```{r}
+#CI for first female breakpoint
+breakpoint1female_2018_2break <- my.seg_female2_2018$psi[3]
+breakpoint1_SEfemale_2018_2break <- my.seg_female2_2018$psi[5]
+breakpoint1female_lowCI_2018_2break <- breakpoint1female_2018_2break - (breakpoint1_SEfemale_2018_2break*1.96)
+breakpoint1female_upCI_2018_2break <- breakpoint1female_2018_2break + (breakpoint1_SEfemale_2018_2break*1.96)
+
+breakpoint1female_2018_2break
+breakpoint1female_lowCI_2018_2break
+breakpoint1female_upCI_2018_2break
+
+```
+
+```{r}
+breakpoint2female_2018_2break <- my.seg_female2_2018$psi[4]
+breakpoint2_SEfemale_2018_2break <- my.seg_female2_2018$psi[6]
+breakpoint2female_lowCI_2018_2break <- breakpoint2female_2018_2break - (breakpoint2_SEfemale_2018_2break*1.96)
+breakpoint2female_upCI_2018_2break <- breakpoint2female_2018_2break + (breakpoint2_SEfemale_2018_2break*1.96)
+
+breakpoint2female_2018_2break
+breakpoint2female_lowCI_2018_2break
+breakpoint2female_upCI_2018_2break
+
+```
+
+## 2 break segmented plot
+
+```{r}
+segmentedplot_allage2break <- obs_fit_both_2018_2break %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+    aes (y=observed), alpha=0.4)+
+  geom_line (
+    aes (y=predicted), size=1) +
+    ylim(0,2600)+
+    labs(x="Year", y="Age-standardised mortality rate", title = "Age-standardised quarterly rolling annual mortality rates", subtitles="males and females, all ages, Scotland, 1990 to 2018: two-break segmented model fitted")+
+ scale_x_continuous (breaks=c(1990, 1994, 1998, 2002, 2006, 2010, 2014, 2018))+ 
+    geom_vline(xintercept = my.seg_male2_2018[["psi"]][[4]], color = "#00BFC4", linetype="dotdash")+
+    geom_vline(xintercept = my.seg_female2_2018[["psi"]][[4]], color = "#F8766D", linetype="dotdash") +
+    geom_vline(xintercept = my.seg_male2_2018[["psi"]][[3]], color = "#00BFC4", linetype="dotdash")+
+    geom_vline(xintercept = my.seg_female2_2018[["psi"]][[3]], color = "#F8766D", linetype="dotdash") +
+   annotate(geom="text", x=2011, y=300, label="Male\nbreakpoint 2\nOct 2012-\n Sep 2013 ")+
+   annotate(geom="text", x=2017, y=300, label="Female\nbreakpoint 2\nJuly 2013-\nJune2014")+
+  annotate(geom="text", x=1995, y=300, label="Male and Female\nbreakpoint 1\nJan 1990-\nDec 1990")
+
+segmentedplot_allage2break
+    ggsave (
+    "Figures/segmentedplotonly_Scotland_Allages_2break.png", height=15, width=20, units="cm")
+    ```
+
+## Errorbar plot
+
+Alternative way to indicate breakpoint, employing a point with error bars to indicate 95% confidence interval. 
+
+```{r}
+
+
+obs_fit_both_2018 <- as_tibble(obs_fit_both_2018) # convert to 'nice' tibble format (better display)
+
+temp_data <- tribble(
+  ~ sex, ~time_min, ~time_max, ~y_pos, 
+  "M", breakpointmale_2018 - 2 * breakpoint_SEmale_2018, breakpointmale_2018 + 2 * breakpoint_SEmale_2018, 1300,
+  "F", breakpointfemale_2018 - 2 * breakpoint_SEfemale_2018, breakpointfemale_2018 + 2 * breakpoint_SEfemale_2018, 1000 
+)
+
+
+obs_fit_both_2018 %>% 
+   ggplot(
+     aes(x = time, y = observed, color = sex, shape = sex)
+     ) + 
+  geom_point(aes(y=observed)) +
+  geom_errorbarh(
+    aes(xmin = time_min, xmax = time_max, y = y_pos, colour = sex),
+    inherit.aes = F, 
+    height = 100,
+    data = temp_data
+  ) +
+  geom_point(
+    aes(x = brkpoint, y = y_pos, shape = sex, color = sex),
+    inherit.aes = F,
+    data = tribble(
+      ~ sex, ~brkpoint, ~y_pos,
+      "M", breakpointmale_2018, 1300,
+      "F", breakpointfemale_2018, 1000
+    ),
+    size = 4
+  )
+
+```
+
+# Summary of breakpoints as box-and-whisker charts 
+
+```{r}
+
+load("summary_stats_75andover.rdata") # for 75 and over
+load("summary_stats_under75.rdata")
+
+breakpoint_summaries_allage <- tribble(
+  ~gender,  ~num_breaks, ~break_num, ~lower, ~upper, ~point,
+  "Female", "One", 1, breakpoint_low_CIfemale_2018, breakpoint_up_CIfemale_2018, breakpointfemale_2018,
+   "Male",   "One", 1, breakpoint_low_CImale_2018, breakpoint_up_CImale_2018, breakpointmale_2018,
+   "Female", "Two", 1, breakpoint1female_lowCI_2018_2break[1], breakpoint1female_upCI_2018_2break[1], breakpoint1female_2018_2break[1],
+   "Female", "Two", 2, breakpoint2female_lowCI_2018_2break[1], breakpoint2female_upCI_2018_2break[1], breakpoint2female_2018_2break[1],
+   "Male",   "Two", 1, breakpoint1male_lowCI_2018_2break[1], breakpoint1male_upCI_2018_2break[1], breakpoint1male_2018_2break[1],
+   "Male",   "Two", 2, breakpoint2male_lowCI_2018_2break[1], breakpoint2male_upCI_2018_2break[1], breakpoint2male_2018_2break[1]
+)
+
+breakpoint_summaries_over75 <- tribble(
+  ~gender,  ~num_breaks, ~break_num, ~lower, ~upper, ~point,
+  "Female", "One", 1, breakpoint_low_CIfemale_O75, breakpoint_up_CIfemale_O75, breakpointfemale_O75,
+   "Male",   "One", 1, breakpoint_low_CImale_O75, breakpoint_up_CImale_O75, breakpointmale_O75,
+   "Female", "Two", 1, breakpoint_low_CIfemale_O75_2break[1], breakpoint_up_CIfemale_O75_2break[1], breakpointfemale_O75_2break[1],
+   "Female", "Two", 2, breakpoint_low_CIfemale_O75_2break[2], breakpoint_up_CIfemale_O75_2break[2], breakpointfemale_O75_2break[2],
+   "Male",   "Two", 1, breakpoint_low_CImale_O75_2break[1], breakpoint_up_CImale_O75_2break[1], breakpointmale_O75_2break[1],
+   "Male",   "Two", 2, breakpoint_low_CImale_O75_2break[2], breakpoint_up_CImale_O75_2break[2], breakpointmale_O75_2break[2]
+)
+
+breakpoint_summaries_upto75 <- tribble(
+  ~gender,  ~num_breaks, ~break_num, ~lower, ~upper, ~point,
+  "Female", "One", 1, breakpoint_low_CIfemale_U75, breakpoint_up_CIfemale_U75, breakpointfemale_U75,
+   "Male",   "One", 1, breakpoint_low_CImale_U75, breakpoint_up_CImale_U75, breakpointmale_U75,
+   "Female", "Two", 1, breakpoint_low_CIfemale_U75_2break[1], breakpoint_up_CIfemale_U75_2break[1], breakpointfemale_U75_2break[1],
+   "Female", "Two", 2, breakpoint_low_CIfemale_U75_2break[2], breakpoint_up_CIfemale_U75_2break[2], breakpointfemale_U75_2break[2],
+   "Male",   "Two", 1, breakpoint_low_CImale_U75_2break[1], breakpoint_up_CImale_U75_2break[1], breakpointmale_U75_2break[1],
+   "Male",   "Two", 2, breakpoint_low_CImale_U75_2break[2], breakpoint_up_CImale_U75_2break[2], breakpointmale_U75_2break[2]
+)
+
+
+breakpoint_summaries_allage
+breakpoint_summaries_over75
+breakpoint_summaries_upto75
+
+breakpoint_summaries_all <- breakpoint_summaries_allage %>% 
+  mutate(age_group = "All ages") %>% 
+  bind_rows(
+    breakpoint_summaries_over75 %>% mutate(age_group = "75 years and over")
+  ) %>% 
+  bind_rows(
+    breakpoint_summaries_upto75 %>% mutate(age_group = "Up to 75 years")
+  )
+
+breakpoint_summaries_all <- breakpoint_summaries_all %>% 
+  mutate(age_group = factor(age_group, levels = c("All ages", "Up to 75 years", "75 years and over")))
+
+
+```
+
+Now let's visualise this
+
+Now let's think about labelling/describing to take into account the use of quarterly rolling values 
+
+```{r}
+
+write_yearquarter <- function(x){
+  df <- data_frame(
+    x = x, floor = floor(x)
+  ) %>% 
+    mutate(remainder = x - floor) %>% 
+    mutate(quarter = 1 + floor(4 * remainder)) %>% 
+    mutate(label = paste0("Q", quarter, ", ", floor)) 
+  
+  pull(df, label)
+}
+
+breakpoint_summaries_all %>% 
+  arrange(num_breaks, gender, age_group) %>% 
+  mutate(model_name = paste0(gender, ", ", num_breaks, " break. ", age_group)) %>% 
+  mutate(rownum = row_number()) %>% 
+  mutate(model_name = fct_reorder(model_name, rownum, .desc = TRUE)) %>% 
+  mutate(
+    lower_label = write_yearquarter(lower - 1),
+    upper_label = write_yearquarter(upper),
+    point_label = write_yearquarter(point - 0.5),
+    both_label = paste0(lower_label, " to ", upper_label)
+    ) %>% 
+  ggplot(aes(y = model_name)) + 
+  geom_point(aes(x = point)) + 
+  geom_segment(aes(yend = model_name, x = lower, xend = upper)) + 
+  theme_minimal(base_size = 18) + 
+  labs(
+    x = "Year", y = "Sex, model type, age group",
+    title = "Segmented regression of age-standardised mortality rates for Scotland Q4 1990- Q2 2018:
+              breakpoint estimates for males and females, one and two break models",
+    subtitle = "Dots indicate point estimates; lines indicate 95% confidence interval"
+       ) +
+  coord_fixed(ratio = 2) + 
+  geom_text(aes(x = point, label = point_label), nudge_y = 0.3, fontface = "bold") + 
+  geom_text(aes(x = point, label = both_label), nudge_y = -0.2, fontface = "italic") +
+  scale_x_continuous(limits = c(1988, 2018), breaks = seq(1990, 2018, by = 2), minor_breaks = seq(1984, 2018, by = 1))
+  
+ggsave("figures/breakpoint_timeline.png", width = 50, height = 30, dpi = 300, units = "cm")
+
+```
+
+This might be a bit of a Phyrric victory, but seems to do the job. 
+

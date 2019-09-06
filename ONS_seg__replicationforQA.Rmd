@@ -1,0 +1,264 @@
+---
+title: "ONS segmented regression"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+#Introduction
+To replicate ONS segmented regression with ONS England ASMR data Q41990-Q42017
+
+##Load packages
+```{r}
+#install.packages("pacman")
+pacman::p_load(
+  tidyverse,
+  segmented,
+  plotly,
+  ggplot2,
+  dplyr,
+  readr,
+  broom
+               )
+```
+
+
+##Load and view data
+
+```{r}
+data_male_eng <- read_csv("Data/ONSASMR_England_1990_2018_male.csv") %>% 
+  rename(sex=Sex)
+data_female_eng <- read_csv("Data/ONSASMR_England_1990_to_2017_female.csv", col_types = "ccd") %>% 
+  rename (
+    sex = Sex
+  )
+```
+
+#Tidy year and quarter
+
+```{r}
+data_male_eng %>% 
+  separate(Time, into = c("quarter","year"), sep = 2) %>% 
+  separate(quarter, into =c("discard","quarter"), sep = 1) %>% 
+mutate(
+    year = as.double(year),
+    quarter = as.double(quarter)
+  ) %>% 
+  mutate(
+    time = year + (quarter / 4) - 0.125
+  ) %>% 
+  select(time, sex, Rate) -> tidied_rates_maleeng
+ tidied_rates_maleeng
+
+ data_female_eng %>% 
+  separate(Time, into = c("quarter","year"), sep = 2) %>% 
+  separate(quarter, into =c("discard","quarter"), sep = 1) %>% 
+mutate(
+    year = as.double(year),
+    quarter = as.double(quarter)
+  ) %>% 
+  mutate(
+    time = year + (quarter / 4) - 0.125
+  ) %>% 
+  select(time, sex, Rate) -> tidied_rates_femaleeng
+ tidied_rates_femaleeng
+```
+
+##Plot rates
+
+```{r}
+plotmale_eng<-ggplot(tidied_rates_maleeng,aes(x=time,y=Rate))+geom_line(size=1.0001, show.legend = TRUE)+theme(text=element_text(size=14))
+plotmale_eng
+plotfemale_eng<-ggplot(tidied_rates_femaleeng,aes(x=time,y=Rate))+geom_line(size=1.0001, show.legend = TRUE)+theme(text=element_text(size=14))
+plotfemale_eng
+```
+
+
+
+# Segmented regression 
+##Generate linear model for both sexes
+
+```{r}
+
+lm(Rate ~ time, data = tidied_rates_maleeng) -> lmod_male_eng
+lm(Rate ~ time, data = tidied_rates_femaleeng) -> lmod_female_eng
+  
+
+```
+
+##View linear model 
+
+```{r}
+summary (lmod_male_eng)
+summary (lmod_female_eng)
+
+```
+## Davies test - this is limited in a 2-break point analysis as currently the Davies test will only look for 1 breakpoint
+```{r}
+davies_allmale_eng = davies.test(lmod_male_eng, ~time, k=107)
+davies_allfemale_eng = davies.test(lmod_female_eng, ~time, k=107)
+davies_allmale_eng
+davies_allfemale_eng
+```
+
+
+
+## Segmented regression function - one break point
+
+```{r}
+ my.seg_male_eng<-segmented(  lmod_male_eng, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ my.seg_female_eng<-segmented(  lmod_female_eng, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+
+```
+  
+## outputs from segmented function
+
+```{r}
+summary(my.seg_male_eng)
+summary(my.seg_female_eng)
+my.fitted_male_eng <- fitted(my.seg_male_eng)
+my.fitted_female_eng <- fitted(my.seg_female_eng)
+
+```
+
+##Extract breakpoint and CI
+```{r}
+breakpointmale_eng <- my.seg_male_eng$psi[, 2]
+breakpointfemale_eng <- my.seg_female_eng$psi[, 2]
+breakpoint_SEmale_eng <- my.seg_male_eng$psi[, 3]
+breakpoint_SEfemale_eng <- my.seg_female_eng$psi[, 3]
+breakpoint_low_CImale_eng <- breakpointmale_eng - (breakpoint_SEmale_eng*1.96)
+breakpoint_up_CImale_eng <- breakpointmale_eng + (breakpoint_SEmale_eng*1.96)
+breakpoint_low_CIfemale_eng <- breakpointfemale_eng - (breakpoint_SEfemale_eng*1.96)
+breakpoint_up_CIfemale_eng <- breakpointfemale_eng + (breakpoint_SEfemale_eng*1.96)
+
+breakpointmale_eng
+breakpoint_low_CImale_eng
+breakpoint_up_CImale_eng
+breakpointfemale_eng
+breakpoint_low_CIfemale_eng
+breakpoint_up_CIfemale_eng
+```  
+
+##Plot model
+
+```{r}
+modelplot_m_eng <- tidied_rates_maleeng %>% 
+  ggplot(
+    aes(x=time)
+  ) + 
+  geom_point(
+    aes(y=Rate)
+  ) + 
+  geom_line(
+    aes(y=my.fitted_male_eng)
+  )
+modelplot_f_eng <- tidied_rates_femaleeng %>%
+  ggplot(
+    aes(x = time)
+  ) +
+  geom_point(
+    aes(y = Rate)
+  ) +
+  geom_line(
+    aes(y = my.fitted_female_eng)
+  )
+modelplot_m_eng
+modelplot_f_eng
+```
+##Model predicted values to data frame tidied_allagerates
+
+```{r}
+tidied_rates_maleeng %>%
+  mutate(
+    onebreak_fit = fitted(
+      my.seg_male_eng
+     
+      )
+    ) -> malefitted_eng 
+
+tidied_rates_femaleeng %>%
+  mutate(
+    onebreak_fit = fitted(
+      my.seg_female_eng
+
+      )
+    ) -> femalefitted_eng
+
+plot(malefitted_eng$onebreak_fit)
+plot(femalefitted_eng$onebreak_fit)
+```
+##Combine male and female observed and predicted
+
+```{r}
+femalefitted_eng %>% 
+  select(
+    time, sex, observed = Rate,
+    predicted = onebreak_fit
+  ) %>% 
+  bind_rows(
+    malefitted_eng %>% 
+      select(
+        time, sex, observed = Rate,
+        predicted = onebreak_fit
+      ) 
+  ) -> obs_fit_both_eng
+```
+
+
+##Plot obs, predicted, and lm
+
+```{r}
+obs_fit_both_eng %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+    aes (y=observed)) +
+  geom_line ( 
+    aes (y=predicted)) +
+  stat_smooth(method="lm",se=F,linetype="dashed",
+    aes (y=observed)
+  )
+```
+
+##Plot using coefficients and geom_abline
+```{r}
+ # Get coeffiencents male
+  b0_aspec_m_eng <- coef(my.seg_male_eng)[[1]]
+  b1_aspec_m_eng <- coef(my.seg_male_eng)[[2]]
+  c1_aspec_m_eng <- coef(my.seg_male_eng)[[2]] + coef(my.seg_male)[[3]]
+  
+  break1_aspec_m <- my.seg_male_eng$psi[[2]]
+  
+  # Get coefficients female
+    b0_aspec_f_eng <- coef(my.seg_female_eng)[[1]]
+  b1_aspec_f_eng <- coef(my.seg_female_eng)[[2]]
+  c1_aspec_f_eng <- coef(my.seg_female_eng)[[2]] + coef(my.seg_female_eng)[[3]]
+  
+  break1_aspec_f_eng <- my.seg_female_eng$psi[[2]]
+  
+# plot
+
+obs_fit_both_eng %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+    aes (y=observed)) +
+  geom_line ( 
+    aes (y=predicted)) +
+  geom_abline(intercept = b0_aspec_m, slope = b1_aspec_m, color="blue", linetype="dashed") +
+    geom_abline(intercept = b0_aspec_f, slope = b1_aspec_f, color="red", linetype="dashed")
+
+
+  ggsave (
+    "Figures/Segmentedplot_England.png", height=10, width=15,units="cm"  )
+  
+```
+```{r}
+
+```
+

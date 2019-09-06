@@ -1,0 +1,365 @@
+---
+title: "Scotland segmented over 75"
+output:
+  word_document: default
+  html_notebook: default
+---
+---
+# Introduction
+
+To undertake segmented regression (one and two break) for Scotland age group over 75 years. Employs full data range available (Q1 1990-Q2 2018)
+
+* Load packages
+* Load data
+* Ensure correctly labelled
+* Convert dates to identifiable quarters
+* Limit over 75
+* Generate linear model
+* Generate segmented 
+* Run Davies test
+
+## Load packages
+
+```{r}
+#install.packages("pacman")
+pacman::p_load(
+  tidyverse,
+  segmented,
+  plotly,
+  dplyr,
+  readr,
+  ggplot2,
+  broom,
+  tidyr
+               )
+```
+
+## Load data and assign to object "data"
+
+```{r}
+data <- read.csv("Data/QuarterlyASMR1990_2018_OVER75.csv")
+data
+```
+
+#Tidy periods into quarters, select all age variables, filter to M&F only
+```{r}
+
+tidied_OVER75rates <-
+  data %>%
+  separate(Quarter, into = c("year","quarter"), sep = 4) %>% 
+  mutate(
+   year = as.double(year),
+   quarter = as.double(quarter)
+  ) %>% 
+  mutate(
+    time = year + (quarter / 4) - 0.125
+  ) %>% 
+  select(time, Sex, Rate)%>%
+  rename(sex=Sex)
+
+
+tidied_OVER75rates
+
+```
+
+# plot mortality rates by time
+```{r}
+plot<-ggplot(tidied_OVER75rates, aes(x=time,y=Rate, color=sex))+geom_line(size=1.0001, show.legend = TRUE)+theme(text=element_text(size=14))
+plot
+```
+
+# Segmented regression 
+##Generate linear model for both sexes
+
+```{r}
+tidied_OVER75rates %>% 
+  filter(sex == "M") -> O75male
+  lm(Rate ~ time, data = O75male) -> lmodO75_male
+
+tidied_OVER75rates %>%
+  filter(sex == "F") -> O75female
+  lm(Rate ~ time, data =  O75female) -> lmodO75_female
+
+```
+
+##View linear model 
+
+```{r}
+summary (lmodO75_male)
+summary (lmodO75_female)
+
+```
+
+
+## Davies test 
+```{r}
+davies_O75male = davies.test(lmodO75_male, ~time, k=111)
+davies_O75female = davies.test(lmodO75_female, ~time, k=111)
+davies_O75male
+davies_O75female
+```
+  
+## Get trend line of linear model fit to whole timeseries 
+  
+
+```{r}
+my.coeftrendlineO75male <- coef(lmodO75_male)
+my.coeftrendlineO75female <- coef(lmodO75_female)
+addtrendline <- plot + geom_abline(intercept = my.coeftrendlineO75male[1], col="Blue", size=1.0001,
+                                       slope = my.coeftrendlineO75male[2], 
+                                       aes(colour = "Overall"))+
+  geom_abline(intercept = my.coeftrendlineO75female[1], col="Blue", size=1.0001,
+                                       slope = my.coeftrendlineO75female[2], 
+                                       aes(colour = "Overall"))
+addtrendline
+```
+## Segmented regression function - one break point
+
+```{r}
+ my.seg_male_O75<-segmented(  lmodO75_male, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ my.seg_female_O75<-segmented(  lmodO75_female, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+
+```
+  
+## outputs from segmented function
+
+```{r}
+summary(my.seg_male_O75)
+summary(my.seg_female_O75)
+my.fitted_male_O75 <- fitted(my.seg_male_O75)
+my.fitted_female_O75 <- fitted(my.seg_female_O75)
+
+```
+#Extract breakpoint and CI
+
+```{r}
+breakpointmale_O75 <- my.seg_male_O75$psi[, 2]
+breakpointfemale_O75 <- my.seg_female_O75$psi[, 2]
+breakpoint_SEmale_O75 <- my.seg_male_O75$psi[, 3]
+breakpoint_SEfemale_O75 <- my.seg_female_O75$psi[, 3]
+breakpoint_low_CImale_O75 <- breakpointmale_O75 - (breakpoint_SEmale_O75*1.96)
+breakpoint_up_CImale_O75 <- breakpointmale_O75 + (breakpoint_SEmale_O75*1.96)
+breakpoint_low_CIfemale_O75 <- breakpointfemale_O75 - (breakpoint_SEfemale_O75*1.96)
+breakpoint_up_CIfemale_O75 <- breakpointfemale_O75 + (breakpoint_SEfemale_O75*1.96)
+
+breakpointmale_O75
+breakpoint_low_CImale_O75
+breakpoint_up_CImale_O75
+breakpointfemale_O75
+breakpoint_low_CIfemale_O75
+breakpoint_up_CIfemale_O75
+```  
+#Plot model
+```{r}
+tidied_OVER75rates %>% 
+  filter(sex =="M") %>% 
+  ggplot(
+    aes(x = time)
+  ) + 
+  geom_point(
+    aes(y = Rate)
+  ) + 
+  geom_line(
+    aes(y = my.fitted_male_O75)
+  )
+tidied_OVER75rates %>% 
+  filter(sex =="F") %>% 
+  ggplot(
+    aes(x = time)
+  ) + 
+  geom_point(
+    aes(y = Rate)
+  ) + 
+  geom_line(
+    aes(y = my.fitted_female_O75) 
+  )
+```
+#Model predicted values to data frame tidied_allagerates
+```{r}
+tidied_OVER75rates %>%
+  filter(sex == "M") %>% 
+  mutate(
+    onebreak_fit_O75 = fitted(
+      my.seg_male_O75 
+     
+      )
+    ) -> malefitted_O75
+
+tidied_OVER75rates %>%
+  filter(sex == "F") %>% 
+  mutate(
+    onebreak_fit_O75 = fitted(
+      my.seg_female_O75 
+
+      )
+    ) -> femalefitted_O75
+plot(malefitted_O75$onebreak_fit_O75)
+plot(femalefitted_O75$onebreak_fit_O75)
+```
+
+##Combine male and female observed and predicted
+
+```{r}
+femalefitted_O75 %>% 
+  select(
+    time, sex, observed = Rate,
+    predicted = onebreak_fit_O75
+  ) %>% 
+  bind_rows(
+    malefitted_O75 %>% 
+      select(
+        time, sex, observed = Rate,
+        predicted = onebreak_fit_O75
+      ) 
+  ) ->obs_fit_both_O75
+
+age <- "over75"
+obs_fit_both_O75$agegroup = age
+
+obs_fit_both_O75
+```
+#Plot obs, predicted, and lm
+```{r}
+obs_fit_both_O75 %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+    aes (y=observed)) +
+  geom_line ( 
+    aes (y=predicted)) +
+  stat_smooth(method="lm",se=F,linetype="dashed",
+    aes (y=observed)
+  )
+```
+
+##Getsegmented regression coefficients
+```{r}
+coef(my.seg_male_O75)
+coef(my.seg_female_O75)
+```
+##Plot using coefficients and geom_abline
+```{r}
+ # Get coeffiencents male
+  b0_aspec_m_O75 <- coef(my.seg_male_O75)[[1]]
+  b1_aspec_m_O75 <- coef(my.seg_male_O75)[[2]]
+  c1_aspec_m_O75 <- coef(my.seg_male_O75)[[2]] + coef(my.seg_male_O75)[[3]]
+  
+  break1_aspec_m_O75 <- my.seg_male_O75$psi[[2]]
+  
+  # Get coefficients female
+    b0_aspec_f_O75 <- coef(my.seg_female_O75)[[1]]
+  b1_aspec_f_O75 <- coef(my.seg_female_O75)[[2]]
+  c1_aspec_f_O75 <- coef(my.seg_female_O75)[[2]] + coef(my.seg_female_O75)[[3]]
+  
+  break1_aspec_f_O75 <- my.seg_female_O75$psi[[2]]
+  
+# plot
+ p <- obs_fit_both_O75 %>% 
+  ggplot(
+    aes (x=time, color=sex)
+  ) +
+  geom_point(
+    aes (y=observed), alpha=0.4) +
+  geom_line (
+    aes (y=predicted), size=1) +
+  geom_abline(intercept = b0_aspec_m_O75, slope = b1_aspec_m_O75, color="#00BFC4", linetype="dashed") +
+    geom_abline(intercept = b0_aspec_f_O75, slope = b1_aspec_f_O75, color="#F8766D", linetype= "dashed") +
+    ylim(0,15000)+
+    labs(x="Year", y="Age-standardised mortality rate", title = 
+        "Age-standardised quarterly rolling annual mortality rates 
+         and fitted segmented model, males and females, over 75 years, 
+         Scotland, 1990 to 2018") +
+    scale_x_continuous (breaks=c(1990, 1994, 1998, 2002, 2006, 2010, 2014, 2018))+
+    geom_vline(xintercept = my.seg_male_O75[["psi"]][[2]], color = "#00BFC4", linetype="dotdash")+
+    geom_vline(xintercept = my.seg_female_O75[["psi"]][[2]], color = "#F8766D", linetype="dotdash") +
+   annotate(geom="text", x=2012, y=2500, label="Male 75+\nbreakpoint\nApr 2013-\n Mar 2014 ")+
+   annotate(geom="text", x=2017, y=2500, label="Female 75+\nbreakpoint\nOct 2013-\nSep 2014")
+   
+ 
+ plot(p)
+
+ 
+    ggsave (
+    "Figures/Segmentedplot_Scotland_75+.png", height=15, width=20, units="cm")
+
+```
+
+
+
+##2 breakpoint segmented 
+```{r}
+my.seg_male2_O75 <-segmented( lmodO75_male, seg_rate.Z = ~timepoint, psi = NA, control = seg.control(K=2))
+my.seg_female2_O75<- segmented(lmodO75_female, seg_rate.Z = ~timepoint, psi = NA, control = seg.control(K=2))
+
+summary(my.seg_male2_O75)
+summary(my.seg_female2_O75)
+```
+
+
+
+##AIC and BIC to compare one and two break models
+```{r}
+AIC(my.seg_male_O75, my.seg_male2_O75)
+AIC(my.seg_female_O75, my.seg_female2_O75)
+BIC(my.seg_male_O75, my.seg_male2_O75)
+BIC(my.seg_female_O75, my.seg_female2_O75)
+```
+
+#Extract breakpoint and CI for 2 break model
+
+```{r}
+
+
+
+breakpointmale_O75_2break <- my.seg_male2_O75$psi[, 2]
+breakpointfemale_O75_2break <- my.seg_female2_O75$psi[, 2]
+breakpoint_SEmale_O75_2break <- my.seg_male2_O75$psi[, 3]
+breakpoint_SEfemale_O75_2break <- my.seg_female2_O75$psi[, 3]
+breakpoint_low_CImale_O75_2break <- breakpointmale_O75_2break - (breakpoint_SEmale_O75_2break*1.96)
+breakpoint_up_CImale_O75_2break <- breakpointmale_O75_2break + (breakpoint_SEmale_O75_2break*1.96)
+breakpoint_low_CIfemale_O75_2break <- breakpointfemale_O75_2break - (breakpoint_SEfemale_O75_2break*1.96)
+breakpoint_up_CIfemale_O75_2break <- breakpointfemale_O75_2break + (breakpoint_SEfemale_O75_2break*1.96)
+
+breakpointmale_O75_2break
+breakpoint_low_CImale_O75_2break
+breakpoint_up_CImale_O75_2break
+breakpointfemale_O75_2break
+breakpoint_low_CIfemale_O75_2break
+breakpoint_up_CIfemale_O75_2break
+``` 
+
+
+
+
+And now to save these values 
+
+
+```{r}
+save(
+  breakpointmale_O75_2break, 
+  breakpointfemale_O75_2break,
+  breakpoint_SEmale_O75_2break,
+  breakpoint_SEfemale_O75_2break,
+  breakpoint_low_CImale_O75_2break, 
+  breakpoint_up_CImale_O75_2break,
+  breakpoint_low_CIfemale_O75_2break,
+  breakpoint_up_CIfemale_O75_2break,
+  breakpointmale_O75,
+  breakpoint_low_CImale_O75,
+  breakpoint_up_CImale_O75,
+  breakpointfemale_O75,
+  breakpoint_low_CIfemale_O75,
+  breakpoint_up_CIfemale_O75,
+file = "summary_stats_75andover.rdata"
+)
+
+```
+
+
+
+
+
+
+
+

@@ -1,0 +1,288 @@
+---
+title: "Data management for segmented regression"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+# Introduction
+
+To organise input data for segmented regression of age-standardised mortality rates. 
+* Load packages
+* Load data
+* Ensure correctly labelled
+* Convert dates to identifiable quarters
+* Visualise trends
+
+## Load packages
+
+```{r}
+#install.packages("pacman")
+pacman::p_load(
+  tidyverse,
+  segmented,
+  plotly
+               )
+```
+
+## Load data and assign to object "data"
+
+```{r}
+data <- read_csv("Data/QuarterlyASMR1990_2018.csv")
+```
+
+## Look at data contents
+
+```{r}
+data
+glimpse(data)
+```
+
+## Separate combined dates to years and quarters
+
+```{r}
+data %>%
+  separate(period, into = c("year","quarter"), sep = 4) %>% 
+  mutate(
+    year = as.double(year),
+    quarter = as.double(quarter)
+  ) %>% 
+  mutate(
+    time = year + (quarter / 4) - 0.125
+  ) %>% 
+  select(time, sex, totdeaths) -> tidied_totdeaths
+```
+
+
+## Visualise number of deaths by sex
+
+```{r}
+tidied_totdeaths %>%
+  ggplot(
+    aes(
+      x = time, 
+      y = totdeaths,
+      color = sex
+    )
+  ) +
+  geom_line() + 
+  coord_cartesian(
+    ylim = c(0, 70000)
+  ) -> alldeathsplot
+
+```
+
+## Visualise with plotly
+
+```{r}
+alldeathsplot %>%
+  ggplotly()
+
+```
+## Visualise deaths men and women only
+
+```{r}
+tidied_totdeaths %>%
+  filter(
+    sex != "P"
+  ) %>%
+  ggplot(
+    aes(
+      x = time, 
+      y = totdeaths,
+      color = sex
+    )
+  ) +
+  geom_line() + 
+  coord_cartesian(
+    ylim = c(0, 40000)
+  )
+
+```
+## Tidy data - years and quarters into doubles; keep only all age, assign to object "tidied_allagerates"
+
+```{r}
+data %>%
+  separate(period, into = c("year","quarter"), sep = 4) %>% 
+  mutate(
+    year = as.double(year),
+    quarter = as.double(quarter)
+  ) %>% 
+  mutate(
+    time = year + (quarter / 4) - 0.125
+  ) %>% 
+  select(time, sex, allageesprate, allagelcli, allageucli) -> tidied_allagerates 
+```
+
+##Visualise ASMR with ribbon
+
+```{r}
+tidied_allagerates %>%
+  filter(
+    sex != "P"
+  ) %>%
+  ggplot(
+    aes(
+      x = time, 
+      group = sex
+    )
+  ) +
+
+  geom_ribbon(
+    aes(
+      ymin = allagelcli,
+      ymax = allageucli,
+      fill = sex
+      )
+  ) + 
+    geom_line(
+    aes(y = allageesprate)
+  ) + 
+  coord_cartesian(
+    ylim = c(0, 3000)
+  )  
+```
+
+# Segmented regression 
+##Generate linear model for both sexes
+
+```{r}
+tidied_allagerates %>% 
+  rename(rate = allageesprate) %>%
+  filter(sex == "M") -> allagemale
+  lm(rate ~ time, data = allagemale) -> mod_male
+
+tidied_allagerates %>%
+  rename(rate = allageesprate) %>%
+  filter(sex == "F") -> allagefemale
+  lm(rate ~ time, data = allagefemale) -> mod_female
+
+```
+
+##View linear model 
+
+```{r}
+summary (mod_male)
+summary (mod_female)
+
+```
+
+##Run one break segmented regression for both sexes and view
+
+```{r}
+segmented(mod_male, seg.Z = ~time, psi = 1994.125) -> maleonebreak
+segmented(mod_female, seg.Z = ~time, psi = 1994.125) -> femaleonebreak
+summary(maleonebreak)
+summary(femaleonebreak)
+
+```
+
+##Generate predicted values based on model, and plot alongside observed values
+
+```{r}
+tidied_allagerates %>%
+  filter(sex == "M") %>% 
+  mutate(
+    male_onebreak_pred = predict(
+      maleonebreak, 
+      newdata = tidied_allagerates %>% 
+        filter(sex == "M") %>% 
+        select(time)
+      )
+    ) -> malepredicted 
+malepredicted %>%
+  ggplot(
+    aes(x = time)
+  ) + 
+  geom_point(
+    aes(y = allageesprate)
+  ) + 
+  geom_line(
+    aes(y = male_onebreak_pred)
+  )
+```
+
+##Merge male and female predicted values and assign to object "obs_pred_both"
+
+```{r}
+femalepredicted %>% 
+  select(
+    time, sex, observed = allageesprate,
+    lower = allagelcli, upper = allageucli,
+    predicted = female_onebreak_pred
+  ) %>% 
+  bind_rows(
+    malepredicted %>% 
+      select(
+        time, sex, observed = allageesprate,
+        lower = allagelcli, upper = allageucli,
+        predicted = male_onebreak_pred
+      ) 
+  ) -> obs_pred_both
+
+
+```
+
+##Plot male and female observed and predicted
+
+```{r}
+obs_pred_both %>%
+  ggplot(
+    aes(x = time, color = sex)
+  ) + 
+  geom_point(
+    aes(y = observed)
+  ) + 
+  geom_line(
+    aes(y = predicted)
+  )
+```
+
+##Generate and plot residuals based on one break model, x intercepts manually entered
+
+```{r}
+obs_pred_both %>% 
+  mutate(residual=observed-predicted) %>% 
+  ggplot(
+    aes(x = time, shape = sex, color=sex)
+  ) + 
+  geom_point(
+    aes(y = residual)
+  )+ 
+  ylim(c(-100,100))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 2013.496)+
+  geom_vline(xintercept = 2014.373, linetype= "dashed") 
+
+```
+
+##Generate and plot residuals, plotting sexes on separate charts, x intercepts drawn direct from model
+
+```{r}
+obs_pred_both %>% 
+  mutate(residual=observed-predicted) %>% 
+  ggplot(
+    aes(x = time)
+  ) + 
+  geom_point(
+    aes(y = residual)
+  ) +
+  facet_wrap(~sex) +
+  ylim(c(-100,100))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = maleonebreak[["psi"]][[2]])+
+    #geom_vline(xintercept = 2013.496)+
+  geom_vline(xintercept = femaleonebreak[["psi"]][[2]], linetype= "dashed") 
+    #geom_vline(xintercept = 2014.373, linetype= "dashed") 
+
+
+```
+
+##Two break segmented model    
+
+```{r}
+segmented(mod_male, seg.Z = ~time, psi = c(1994, 2002)) -> maletwobreaks
+segmented(mod_female, seg.Z = ~time, psi = c(1994, 2002)) -> femaletwobreaks
+
+```

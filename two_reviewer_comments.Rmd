@@ -1,0 +1,141 @@
+---
+title: "Redraw figure and make summary table"
+output: html_notebook
+---
+
+```{r}
+rm(list = ls())
+
+```
+# Introduction
+
+This document aims to respond to two reviewer comments, both of which are presented below
+
+*R2C10*
+> Appendix Figure 2 is quite interesting and, if space allows, could be moved to the main text. Readers may come in with the expectation that on average, countries with higher levels of life expectancy will experience smaller absolute gains because they are already at fairly high levels. Appendix figure 2 demonstrates fairly effectively that there is almost no relation between the level of life expectancy in 2011 and the mean annual gain in life expectancy 2012-2016 among women. It would be interesting to see the individual countries labeled or, if broad country groupings are used, to use those groupings in this figure.
+
+
+
+*R1C10*
+> The main results should concern the period 1992-2016 as it is done in the lines 37-60. However, these paragraphs providing detailed numerical figures of life expectancy changes should be substantially shortened. Instead of providing data for every country, the results should be summarized by a) providing average, minimum, and maximum values and b) performing comparisons to the corresponding changes in Scotland. A short interpretation should be written about the relationship of these changes to the initial levels of life expectancy.
+
+# Addressing R2C10
+
+Tasks
+
+* Load the data 
+* Replicate the graph
+* Add labels
+* Reduce number of DPs to two
+
+## Load data 
+
+
+### Load prereqs
+
+```{r}
+pacman::p_load(
+  tidyverse,
+  ggrepel,
+  readxl
+)
+
+```
+
+### Data referred to 
+
+> =SERIES("Male",'M extract to 2016'!$B$158:$Y$158,'M chart data'!$B$14:$Y$14,2)
+
+> =SERIES("Female",'F to 2016'!$B$158:$Y$158,'F chart data'!$B$14:$Y$14,1)
+
+
+
+
+```{r}
+path <- "Data/Life expectancy international_updated Jan 2019 - inc. sensitivity analysis.xlsx"
+
+e0_male_2011 <- readxl::read_excel(path = path, sheet = "M extract to 2016") %>% 
+  filter(Year == 2011) %>% 
+  gather(-Year, key = "Country", value = "e0") %>% 
+  mutate(Country = str_replace(Country, ",", "")) %>% 
+  mutate(Sex = "Male") %>% 
+  select(Sex, Country, e0)
+
+# readxl::read_excel(path = path, sheet = "F to 2016")
+e0_female_2011 <- readxl::read_excel(path = path, sheet = "F to 2016") %>% 
+  filter(Year == 2011) %>% 
+  gather(-Year, key = "Country", value = "e0") %>% 
+  mutate(Country = str_replace(Country, ",", "")) %>% 
+  mutate(Sex = "Female") %>% 
+  select(Sex, Country, e0)
+
+e0_2011 <- bind_rows(e0_male_2011, e0_female_2011)
+rm(e0_male_2011, e0_female_2011)
+
+
+# 
+ch_male <- readxl::read_excel(path = path, sheet = "M chart data") %>% 
+  slice(13) %>% 
+  select(-Year) %>% 
+  gather(key = "Country", value = "mean_ch_e0_weeks") %>%
+  mutate(Country = str_replace(Country, ",", "")) %>% 
+  mutate(Sex = "Male") %>% 
+  mutate(mean_ch_e0_weeks = as.numeric(mean_ch_e0_weeks)) %>% 
+  select(Sex, Country, mean_ch_e0_weeks)
+
+
+ch_female <- readxl::read_excel(path = path, sheet = "F chart data") %>% 
+  slice(13) %>% 
+  select(-Year) %>% 
+  gather(key = "Country", value = "mean_ch_e0_weeks") %>% 
+  mutate(Country = str_replace(Country, ",", "")) %>% 
+  mutate(Sex = "Female") %>% 
+  mutate(mean_ch_e0_weeks = as.numeric(mean_ch_e0_weeks)) %>% 
+  select(Sex, Country, mean_ch_e0_weeks)
+
+change_weeks <- bind_rows(ch_male, ch_female)
+rm(ch_male, ch_female)
+
+df_tidy <- inner_join(e0_2011, change_weeks)
+
+```
+
+
+Now to look at the data 
+
+```{r}
+df_tidy
+
+```
+
+Too few rows?
+
+But what does it show?
+
+
+```{r}
+
+mods <- df_tidy %>% 
+  group_by(Sex) %>% 
+  nest() %>% 
+  mutate(mod = map(data, ~lm(mean_ch_e0_weeks ~ e0, data = .x))) %>% 
+  mutate(rsq = map_dbl(mod, ~ summary(.)[["r.squared"]]))
+
+df_tidy %>% 
+  ggplot(aes(x = e0, y = mean_ch_e0_weeks, group = Sex, shape = Sex, linetype = Sex)) + 
+  geom_point() +
+  stat_smooth(method = "lm", se = F, colour = "black") +
+  annotate(geom = "text", x = 70, y = 12, 
+           label = expression(R^2*" = 0.23")
+  ) +
+  annotate(geom = "text", x = 81, y = 6,
+          label = expression(R^2*" = 0.05")         
+  ) + 
+  ggrepel::geom_text_repel(aes(label = Country), size = rel(3)) + 
+  labs(x = "Life expectancy in 2011 (years)", 
+  y = "Mean annual gain in life expectancy 2012-2016 (weeks)"
+)
+
+ggsave("figures/correlation_labelled.png", dpi = 300, height = 15, width = 25, units = "cm")
+
+```

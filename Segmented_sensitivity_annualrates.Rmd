@@ -1,0 +1,192 @@
+title: 'Segmented regression of ANNUAL age-standardised mortality rates
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  word_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+To undertake segmented regression (one and two-break models) for Scotland, all-ages, age-standardised mortality rates(ASMR). Employs annual ASMR data as sensitivity analysis for the regression using quarterly rolling data. 
+
+Contents:
+
+* Load packages, load data, tidy data labels, and convert dates to identifiable quarters
+* Plot observed data
+* Generate, view and plot linear model
+* Run Davies test to identify and test signifcance of single break point
+* Generate and view one breakpoint segmented model
+* Extract breakpoints and confidence intervals
+* Plot one breakpoint model
+* Generate two break segmented model
+* Use AIC and BIC to compare fit of one and two break models
+* Plot two breakpoint model
+* Error bar plot as alternative approach to presenting breakpoint and confidence intervals
+
+## Load packages
+
+```{r}
+rm(list = ls())
+#install.packages("pacman")
+pacman::p_load(
+  tidyverse,
+  segmented,
+  plotly,
+  dplyr,
+  readr,
+  ggplot2,
+  broom,
+  tidyr
+               )
+```
+
+## Load data and assign to object "data"
+
+```{r}
+data <- read.csv("Data/NRS_AnnualASMR_1994_2017.csv")
+data
+```
+
+#Tidy data
+
+```{r}
+
+  data %>%
+  rename(sex=Sex)%>%
+  rename(time=Year)%>%
+  select(time, sex, Rate) -> tidied_annualrates
+
+tidied_annualrates
+
+```
+
+#Plot annual age-standardised mortality rates by time
+
+
+
+```{r}
+plot<-ggplot(tidied_annualrates,aes(x=time,y=Rate, color=sex))+geom_line(size=1.0001, show.legend = TRUE)+theme(text=element_text(size=14))
+plot
+```
+
+##Generate linear model for both sexes
+
+```{r}
+tidied_annualrates %>% 
+  rename(rate = Rate) %>%
+  filter(sex == "M") -> allagemale
+  lm(rate ~ time, data = allagemale) -> lmod_male_ann
+
+tidied_annualrates%>%
+  rename(rate = Rate) %>%
+  filter(sex == "F") -> allagefemale
+  lm(rate ~ time, data = allagefemale) -> lmod_female_ann
+```
+
+
+##View linear model 
+
+```{r}
+summary (lmod_male_ann)
+summary (lmod_female_ann)
+
+```
+
+
+## Get trend line of linear model fit to whole timeseries 
+  
+A linear trend line fitted to the whole data series demonstrates the overall decline in mortality rates, and the steeper decline in men than women. For both sexes the recent observed data lie above the linear trend line. 
+
+```{r}
+my.coeftrendlinemale_ann <- coef(lmod_male_ann)
+my.coeftrendlinefemale_ann <- coef(lmod_female_ann)
+addtrendline_ann <- plot + geom_abline(intercept = my.coeftrendlinemale_ann[1], col="Blue", size=1.0001,
+                                       slope = my.coeftrendlinemale_ann[2], 
+                                       aes(colour = "Overall"))+
+  geom_abline(intercept = my.coeftrendlinefemale_ann[1], col="Blue", size=1.0001,
+                                       slope = my.coeftrendlinefemale_ann[2], 
+                                       aes(colour = "Overall"))
+addtrendline_ann
+```
+
+
+# Segmented regression
+
+## Davies test to test for the significance of breakpoint at each of the 24 possible data points
+
+
+
+```{r}
+davies_allmale_ann = davies.test(lmod_male_ann, ~time, k=24)
+davies_allfemale_ann = davies.test(lmod_female_ann, ~time, k=24)
+davies_allmale_ann
+davies_allfemale_ann
+```
+
+
+## Segmented regression - one breakpoint model
+
+. 
+
+```{r}
+ my.seg_male_ann<-segmented(  lmod_male_ann, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ my.seg_female_ann<-segmented(  lmod_female_ann, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ 
+summary(my.seg_male_ann)
+summary(my.seg_female_ann)
+```
+
+##Extract breakpoint and 95% confidence intervals for one break model
+
+The standard error is used to calcuate an upper and lower 95% confidence intervals. These are presented below. 
+
+```{r}
+breakpointmale_ann <- my.seg_male_ann$psi[, 2]
+breakpointfemale_ann <- my.seg_female_ann$psi[, 2]
+breakpoint_SEmale_ann <- my.seg_male_ann$psi[, 3]
+breakpoint_SEfemale_ann <- my.seg_female_ann$psi[, 3]
+breakpoint_low_CImale_ann <- breakpointmale_ann - (breakpoint_SEmale_ann*1.96)
+breakpoint_up_CImale_ann <- breakpointmale_ann + (breakpoint_SEmale_ann*1.96)
+breakpoint_low_CIfemale_ann <- breakpointfemale_ann - (breakpoint_SEfemale_ann*1.96)
+breakpoint_up_CIfemale_ann <- breakpointfemale_ann + (breakpoint_SEfemale_ann*1.96)
+
+breakpointmale_ann
+breakpoint_low_CImale_ann
+breakpoint_up_CImale_ann
+breakpointfemale_ann
+breakpoint_low_CIfemale_ann
+breakpoint_up_CIfemale_ann
+
+```
+
+## Segmented regression with two breakpoints  
+
+Allowing the model to break at two points identifies a breakpoint in quarter 4 of 1993 for both men and women, indicating the year Jan-Dec 1993. The time period identified for the later breakpoint is unchanged for females (Q2 2014), but occurs one year earlier for males (Q4 2012).
+
+```{r}
+my.seg_male2_ann <-segmented( lmod_male_ann, seg_rate.Z = ~timepoint, psi = NA, control = seg.control(K=2))
+my.seg_female2_ann<- segmented(lmod_female_ann, seg_rate.Z = ~timepoint, psi = NA, control = seg.control(K=2))
+
+summary(my.seg_male2_ann)
+summary(my.seg_female2_ann)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

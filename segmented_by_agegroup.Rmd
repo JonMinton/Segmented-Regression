@@ -1,0 +1,516 @@
+---
+title: "Automating segmented regression for multiple age/demographic groups"
+author: "Jon Minton"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Introduction 
+
+Segmented regression/break point analysis has already been performed for unconditional life expectancy, and conditional life expectancy for multiple age ranges. However, break points could differ by age, and these age differences in break points may be important for understanding the aetiology of life expectancy slowdowns/reversals. Examples of this may include:
+
+1. age-specific differences tend to track a birth cohort, indicating a cohort effect 'ridge' at play
+2. A modest global break point effect is shown to comprise a large effect in some age groups, and a negligible/non-existent effect at others. In particular, if the effect is most pronounced in old age then this suggests the causes related to changes in factor that people in older age are most exposed to (such as adult social care relating to frailty), whereas if the effect is most pronounced in working age then the causes are more likely to relate to changes in factors people of working age are most exposed to (such as changes to working age benefits, housing conditions, the labour market, and so on). 
+
+# Aim 
+
+The aim of this document is to create a workflow for producing many break point analyses for many different age groups. This will first be done with age-specific mortality rates from the HMD for convenience, but the workflow can then be extended to other data sources with similar age-group breakdowns, such as quarterly data and/or subnational data. 
+
+# Part one: load prereq packages and data 
+
+
+```{r}
+# packages 
+
+pacman::p_load(
+  tidyverse,
+  segmented
+)
+
+# Data - Scotland from HMD
+
+dta_exposures <- read_table("data/GBR_SCO/STATS/Exposures_1x1.txt", skip = 2)
+dta_deaths <- read_table("data/GBR_SCO/STATS/Deaths_1x1.txt", skip = 2)
+
+names(dta_exposures) <- tolower(names(dta_exposures))
+names(dta_deaths) <- tolower(names(dta_deaths))
+
+dta_scot <- dta_exposures %>% 
+  gather(key = "gender", value = "exposure", female:total) %>% 
+  inner_join(
+    dta_deaths %>% 
+      gather(key = "gender", value = "deaths", female:total)
+  ) %>% 
+  mutate(
+    mr = (deaths + 0.5) / (exposure + 0.5), # continuity/small n correction - could use any other +ve number or 0
+    lmr = log(mr, 10)
+  )
+
+```
+
+
+Now to do a segmented regression for a single age-gender group, then automate to other age groups 
+
+
+```{r}
+
+this_dta <- dta_scot %>% 
+  filter(year >= 1990) %>% 
+  filter(age == 50) %>% 
+  filter(gender == "female") %>% 
+  select(year, lmr)
+
+# linear regression
+
+linearmodel <- lm(lmr ~ year, data = this_dta)
+
+# segmented regression
+
+segmented_model <- segmented(linearmodel, seg_rate.Z = ~year, psi = NA, control = seg.control(K=1))
+
+brk_est <- segmented_model$psi[,"Est."] # year estimate
+brk_se <- segmented_model$psi[,"St.Err"] # year SE
+brk_mag_est <- summary(segmented_model)$coefficients["U1.year", "Estimate"] # change estimate
+brk_mag_se <- summary(segmented_model)$coefficients["U1.year", "Std. Error"] # change se
+
+
+
+```
+
+This above pattern should now be functionalised as follows
+
+
+```{r}
+segment_and_summarise <- function(DTA){
+  DTA <- DTA %>% select(year, lmr)
+  
+  lin <- lm(lmr ~ year, data = DTA)
+  
+  seg_mod <- segmented(lin, seg_rate.Z = ~year, psi = NA, control = seg.control(K = 1))
+  
+  out <- list(
+    brk_est     = seg_mod$psi[,"Est."], # year estimate
+    brk_se      = seg_mod$psi[,"St.Err"], # year SE
+    brk_mag_est = summary(seg_mod)$coefficients["U1.year", "Estimate"], # change estimate
+    brk_mag_se  = summary(seg_mod)$coefficients["U1.year", "Std. Error"] # change se
+  )
+  
+  return(out)
+}
+
+mdls <- dta_scot %>% 
+  select(age, year, gender, lmr) %>% 
+  filter(year >= 1990) %>% 
+  group_by(age, gender) %>% 
+  nest() %>% 
+  mutate(seg_ests = map(data, safely(segment_and_summarise)))
+
+```
+
+Now to unpack the contents of the `seg_ests` object
+
+```{r}
+mdls_coeffs <- mdls %>% 
+  mutate(
+    brk_est     = map_dbl(seg_ests, ~ brk_est      ), 
+    brk_se      = map_dbl(seg_ests, ~ brk_se       ), 
+    brk_mag_est = map_dbl(seg_ests, ~ brk_mag_est  ), 
+    brk_mag_se  = map_dbl(seg_ests, ~ brk_mag_se   )
+  )
+
+mdls_coeffs %>%
+  mutate(age = as.double(age)) %>% 
+  ggplot(aes(x = age, y = brk_est, colour = gender, group = gender)) + 
+  geom_line()
+
+mdls_coeffs %>%
+  mutate(age = as.double(age)) %>% 
+  ggplot(aes(x = age, y = brk_se, colour = gender, group = gender)) + 
+  geom_line()
+
+```
+
+
+The functional programming approach does not seem to be working. Instead let's 
+look at trying the approach manually for four combinations of age and gender
+
+
+```{r}
+
+dta_1 <- dta_scot %>% 
+  filter(year >= 1990) %>% 
+  filter(age == 50) %>% 
+  filter(gender == "female") %>% 
+  select(year, lmr)
+
+dta_2 <- dta_scot %>% 
+  filter(year >= 1990) %>% 
+  filter(age == 80) %>% 
+  filter(gender == "female") %>% 
+  select(year, lmr)
+
+dta_3 <- dta_scot %>% 
+  filter(year >= 1990) %>% 
+  filter(age == 50) %>% 
+  filter(gender == "male") %>% 
+  select(year, lmr)
+
+dta_4 <- dta_scot %>% 
+  filter(year >= 1990) %>% 
+  filter(age == 80) %>% 
+  filter(gender == "male") %>% 
+  select(year, lmr)
+
+lin_1 <- lm(lmr ~ year, data = dta_1)
+sm_1  <- segmented(lin_1, seg_rate.Z = ~year, psi = NA, control = seg.control(K = 1))
+
+lin_2 <- lm(lmr ~ year, data = dta_2)
+sm_2  <- segmented(lin_2, seg_rate.Z = ~year, psi = NA, control = seg.control(K = 1))
+
+lin_3 <- lm(lmr ~ year, data = dta_3)
+sm_3  <- segmented(lin_1, seg_rate.Z = ~year, psi = NA, control = seg.control(K = 1))
+
+lin_4 <- lm(lmr ~ year, data = dta_4)
+sm_4  <- segmented(lin_4, seg_rate.Z = ~year, psi = NA, control = seg.control(K = 1))
+
+
+
+```
+
+This time, a different estimate is produced for each combination. This suggests that 
+the functional programming approach is somehow now triggering calls to new versions of the objects involved 
+(DTA, linearmod, and segmented model), due to weird ways the segmented::segmented function works.
+
+This suggests a need for a slightly more old fashioned approach to automating the analysis with many combinations 
+
+
+```{r}
+genders <- c("male", "female")
+ages <- 0:95
+
+brk_est_f <- vector(mode = "double", length = length(ages))
+brk_est_m <- vector(mode = "double", length = length(ages))
+
+brk_se_f <- vector(mode = "double", length = length(ages))
+brk_se_m <- vector(mode = "double", length = length(ages))
+
+brk_mag_est_f <- vector(mode = "double", length = length(ages))
+brk_mag_est_m <- vector(mode = "double", length = length(ages))
+
+brk_mag_se_f <- vector(mode = "double", length = length(ages))
+brk_mag_se_m <- vector(mode = "double", length = length(ages))
+
+for (i in seq_along(ages)){
+  
+  this_dta_female <- dta_scot %>% 
+    filter(year >= 1970) %>% 
+    filter(age == ages[i]) %>% 
+    filter(gender == "female") %>% 
+    select(year, lmr)
+
+  this_dta_male <- dta_scot %>% 
+    filter(year >= 1970) %>% 
+    filter(age == ages[i]) %>% 
+    filter(gender == "male") %>% 
+    select(year, lmr)
+  
+  lin_m <- lm(lmr ~ year, data = this_dta_male)
+  lin_f <- lm(lmr ~ year, data = this_dta_female)
+  
+  seg_m <- try(segmented(lin_m, seg_rate.Z = ~year, psi = NA, control = seg.control(K= 1)), TRUE)
+  seg_f <- try(segmented(lin_f, seg_rate.Z = ~year, psi = NA, control = seg.control(K= 1)), TRUE)
+  
+  brk_est_f[i] <- try(seg_f$psi[,"Est."], TRUE)
+  brk_est_m[i] <- try(seg_m$psi[,"Est."], TRUE)
+
+  brk_se_f[i] <- try(seg_f$psi[,"St.Err"], TRUE)
+  brk_se_m[i] <- try(seg_m$psi[,"St.Err"], TRUE)
+    
+  brk_mag_est_f[i] <- try(summary(seg_f)$coefficients["U1.year", "Estimate"], TRUE)
+  brk_mag_est_m[i] <- try(summary(seg_m)$coefficients["U1.year", "Estimate"], TRUE)
+
+  brk_mag_se_f[i] <- try(summary(seg_f)$coefficients["U1.year", "Std. Error"], TRUE)
+  brk_mag_se_m[i] <- try(summary(seg_m)$coefficients["U1.year", "Std. Error"], TRUE)
+
+
+}
+
+
+```
+
+Now to convert back the vectors with error messages recorded so they 
+become NAs again.
+
+```{r}
+brk_est_f <- as.double(brk_est_f)
+brk_est_m <- as.double(brk_est_m)
+
+brk_se_f <- as.double(brk_se_f)
+brk_se_m <- as.double(brk_se_m)
+
+brk_mag_est_f <- as.double(brk_mag_est_f)
+brk_mag_est_m <- as.double(brk_mag_est_m)
+
+brk_mag_se_f <- as.double(brk_mag_se_f)
+brk_mag_se_m <- as.double(brk_mag_se_m)
+
+
+```
+
+And now to build back a dataframe 
+
+```{r}
+
+model_results <- data_frame(
+  age = rep(ages, times = 2), 
+  gender = rep(c("female", "male"), each = length(ages)),
+  brk_est = c(brk_est_f, brk_est_m),
+  brk_se = c(brk_se_f, brk_se_m),
+  brk_mag_est = c(brk_mag_est_f, brk_mag_est_m),
+  brk_mag_se  = c(brk_mag_se_f, brk_mag_se_m)
+)
+
+```
+
+
+Now finally to explore
+
+```{r}
+ model_results %>% 
+   ggplot(
+     aes(x = age, y = brk_est)
+     ) + 
+  geom_point() + 
+  geom_errorbar(
+    aes(ymin = brk_est - 1 * brk_se, ymax = brk_est + 1 * brk_se)
+  ) + 
+  facet_wrap(~gender)
+
+```
+
+Previously I'd set this to only consider data from between 1990 onwards, and this did not show anything consistent with a pattern. By now setting the starting period to 1970 there seems to be a series of breakpoints moving and an up-right diagonal from around age 50 for both genders, but which is continues for more individual ages for females than males. 
+
+This is consistent with a *cohort* effect. I should be able to work out the approximate age of this cohort as follows:
+
+```{r}
+model_results %>% 
+  mutate(implied_cohort = brk_est - age) %>% 
+  ggplot(aes(x = implied_cohort)) +
+  geom_histogram(binwidth = 1) + 
+  facet_wrap(~gender) + 
+  scale_x_continuous(breaks = seq(1880, 2010, by = 10)) + 
+  coord_flip()
+
+```
+
+
+This suggests there's a cohort effect associated with birth cohorts *born in or close to 1922 for females, and 1924 for males*. 
+Other than this cohort effect, the break point analysis does not appear to offer convincing evidence of any other pattern. The danger in just looking at the data from the period 1990 onwards appears one of false positives: seeing faces in clouds and so on. 
+
+In the work I've done of English/Welsh data, the turning point in life expectancy appears to be 2012. 
+
+* In 2012 the 1922 cohort would have been 90 years old. 
+* 90+ is often given as a distinct and less disaggregated category in data releases, especially when presented at subnational level. 
+* Estimates of population counts and survival from age 90 are often produced using different methods to those in younger ages. 
+    * See 'Kannisto method of smoothing old age mortality'/ Thatcher 1988: https://www.mortality.org/Public/Docs/MethodsProtocol.pdf
+
+**The confluence between 2012 as apparent turning point in e0 and a 1922 cohort effect makes me think that statistical artefact relating to age composition, estimation, and aggregation at old ages deserves to be considered very carefully.**     
+
+# Further analyses
+
+* Do the above for England/Wales [done]
+* Visualise effective direction of effect [done] 
+
+## England/Wales
+
+```{r}
+# Data - Scotland from HMD
+
+dta_exposures <- read_table("data/GBRTENW/STATS/Exposures_1x1.txt", skip = 2)
+dta_deaths <- read_table("data/GBRTENW/STATS/Deaths_1x1.txt", skip = 2)
+
+names(dta_exposures) <- tolower(names(dta_exposures))
+names(dta_deaths) <- tolower(names(dta_deaths))
+
+dta_enw <- dta_exposures %>% 
+  gather(key = "gender", value = "exposure", female:total) %>% 
+  inner_join(
+    dta_deaths %>% 
+      gather(key = "gender", value = "deaths", female:total)
+  ) %>% 
+  mutate(
+    mr = (deaths + 0.5) / (exposure + 0.5), # continuity/small n correction - could use any other +ve number or 0
+    lmr = log(mr, 10)
+  )
+
+
+genders <- c("male", "female")
+ages <- 0:95
+
+brk_est_f <- vector(mode = "double", length = length(ages))
+brk_est_m <- vector(mode = "double", length = length(ages))
+
+brk_se_f <- vector(mode = "double", length = length(ages))
+brk_se_m <- vector(mode = "double", length = length(ages))
+
+brk_mag_est_f <- vector(mode = "double", length = length(ages))
+brk_mag_est_m <- vector(mode = "double", length = length(ages))
+
+brk_mag_se_f <- vector(mode = "double", length = length(ages))
+brk_mag_se_m <- vector(mode = "double", length = length(ages))
+
+for (i in seq_along(ages)){
+  
+  this_dta_female <- dta_scot %>% 
+    filter(year >= 1970) %>% 
+    filter(age == ages[i]) %>% 
+    filter(gender == "female") %>% 
+    select(year, lmr)
+
+  this_dta_male <- dta_scot %>% 
+    filter(year >= 1970) %>% 
+    filter(age == ages[i]) %>% 
+    filter(gender == "male") %>% 
+    select(year, lmr)
+  
+  lin_m <- lm(lmr ~ year, data = this_dta_male)
+  lin_f <- lm(lmr ~ year, data = this_dta_female)
+  
+  seg_m <- try(segmented(lin_m, seg_rate.Z = ~year, psi = NA, control = seg.control(K= 1)), TRUE)
+  seg_f <- try(segmented(lin_f, seg_rate.Z = ~year, psi = NA, control = seg.control(K= 1)), TRUE)
+  
+  brk_est_f[i] <- try(seg_f$psi[,"Est."], TRUE)
+  brk_est_m[i] <- try(seg_m$psi[,"Est."], TRUE)
+
+  brk_se_f[i] <- try(seg_f$psi[,"St.Err"], TRUE)
+  brk_se_m[i] <- try(seg_m$psi[,"St.Err"], TRUE)
+    
+  brk_mag_est_f[i] <- try(summary(seg_f)$coefficients["U1.year", "Estimate"], TRUE)
+  brk_mag_est_m[i] <- try(summary(seg_m)$coefficients["U1.year", "Estimate"], TRUE)
+
+  brk_mag_se_f[i] <- try(summary(seg_f)$coefficients["U1.year", "Std. Error"], TRUE)
+  brk_mag_se_m[i] <- try(summary(seg_m)$coefficients["U1.year", "Std. Error"], TRUE)
+
+
+}
+
+brk_est_f <- as.double(brk_est_f)
+brk_est_m <- as.double(brk_est_m)
+
+brk_se_f <- as.double(brk_se_f)
+brk_se_m <- as.double(brk_se_m)
+
+brk_mag_est_f <- as.double(brk_mag_est_f)
+brk_mag_est_m <- as.double(brk_mag_est_m)
+
+brk_mag_se_f <- as.double(brk_mag_se_f)
+brk_mag_se_m <- as.double(brk_mag_se_m)
+
+model_results_scot <- model_results 
+
+model_results_enw <- data_frame(
+  age = rep(ages, times = 2), 
+  gender = rep(c("female", "male"), each = length(ages)),
+  brk_est = c(brk_est_f, brk_est_m),
+  brk_se = c(brk_se_f, brk_se_m),
+  brk_mag_est = c(brk_mag_est_f, brk_mag_est_m),
+  brk_mag_se  = c(brk_mag_se_f, brk_mag_se_m)
+)
+
+
+```
+
+Now to visualise as for Scotland 
+
+```{r}
+model_results_enw %>% 
+   ggplot(
+     aes(x = age, y = brk_est)
+     ) + 
+  geom_point() + 
+  geom_errorbar(
+    aes(ymin = brk_est - 1 * brk_se, ymax = brk_est + 1 * brk_se)
+  ) + 
+  facet_wrap(~gender)
+
+model_results_enw %>% 
+  mutate(implied_cohort = brk_est - age) %>% 
+  ggplot(aes(x = implied_cohort)) +
+  geom_histogram(binwidth = 1) + 
+  facet_wrap(~gender) + 
+  scale_x_continuous(breaks = seq(1880, 2010, by = 10)) + 
+  coord_flip()
+
+```
+
+## Size and direction of 'turning points'
+
+The following two figures show, for Eng/Wales, and Scotland, the estimated direction of the 'turning point' estimated, plotted against either the turning point period (first figure), or the cohort implied by the turning point year - the age. Different shapes are used for Scotland cf England/Wales, and the points are coloured according to the ages. 
+
+
+```{r}
+
+
+model_results_enw %>% 
+  mutate(population = "enw") %>% 
+  bind_rows(
+    model_results_scot %>% 
+      mutate(population = "scot")
+  ) %>% 
+  ggplot(aes(x = brk_est, y = brk_mag_est, color = age, shape = population)) + 
+  geom_point() +
+    geom_errorbar(
+    aes(ymin = brk_mag_est - 1 * brk_mag_se, ymax = brk_mag_est + 1 * brk_mag_se)
+  ) + 
+  facet_wrap(~gender) +
+  scale_color_distiller(palette = "Paired")
+  
+model_results_enw %>% 
+  mutate(population = "enw") %>% 
+  bind_rows(
+    model_results_scot %>% 
+      mutate(population = "scot")
+  ) %>% 
+  mutate(implied_cohort = brk_est - age) %>% 
+  ggplot(aes(x = implied_cohort, y = brk_mag_est, color = age, shape = population)) + 
+  geom_point() +
+    geom_errorbar(
+    aes(ymin = brk_mag_est - 1 * brk_mag_se, ymax = brk_mag_est + 1 * brk_mag_se)
+  ) + 
+  facet_wrap(~gender) +
+  scale_color_distiller(palette = "Paired")
+
+```
+
+
+The first figure, plotted by estimated breakpoint period, shows an increase in middle age and childhood for males after 2010, but not for females; if anything, any post 2010 effect is in the opposite direction. 
+
+There seem to be two parallel horizontal lines between around 1980 and 1995, with the bottom line being slightly negative (improvements) corresponding more to older ages, and the top line being slightly positive (deteriorations), corresponding mainly to working age (50s). The distinction between these two lines is clearer for males than females. 
+
+
+The second figure appears to distinguish age groups more clearly. There is some indication that the 2nd world war marks a kind of turning point in the break point estimates, with below zero estimates ('turns towards improvement') for cohorts born before, and above-zero estimates ('turns towards deterioration') for cohorts born after.
+
+
+# Concluding comments 
+
+Though the above analyses use statistical model results in a highly descriptive/exploratory way, the finding of an apparent cohort effect associated with 1922 for females and 1924 for males in two distinct datasets suggests this is more than hallucinating a pattern. These cohorts enter the 90+ age group at around the same time that apparent austerity-induced effects in stalling life expectancy are also observed in England/Wales. Many national records commonly aggregate 90+ year olds into a single category, and so the age composition within this age group, the average age within this age group, and associated forces of mortality that can be expected from change in age composition alone are perhaps all sources of uncertainty, which may affect overall period life expectancy estimates. 
+
+The Methods Protocol for the HMD reveals that different methods for extrapolating, estimating and appoprtioning both force of mortality and exposure for ages in single year from age 80 onwards:
+https://www.mortality.org/Public/Docs/MethodsProtocol.pdf
+
+Better understanding the extent to which these methods are already applied by individual countries' statistical organisation, and exposures and forces of mortality beyond age 90 are estimated, is perhaps important for being able to adequately explore the role of statistical artefact in slowing trends in e0 by period. 
+
+## Additional possible analyses
+
+* Redo for many other countries
+* Use different starting values (davies test etc)
+* Effect of two breakpoint models - perhaps a 2010s period effect will only be detected in models that already account for the 1920s cohort effect. 
+
+
+# Automating to other countries 
+
+The finding of the same implied cohorts in two populations suggests the analyses should be extended to other countries in the HMD. This means automating the analyses even though the breakpoint function is incompatible with the functional programming approach I'd like to use. This implies using a nested loop approach instead. 
+
+
+
