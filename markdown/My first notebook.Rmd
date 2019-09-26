@@ -15,6 +15,11 @@ To organise input data for segmented regression of age-standardised mortality ra
 * Convert dates to identifiable quarters
 * Visualise trends
 
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
 ## Load packages
 
 ```{r}
@@ -30,6 +35,7 @@ pacman::p_load(
 
 ```{r}
 data <- read_csv("Data/QuarterlyASMR1990_2018.csv")
+
 ```
 
 ## Look at data contents
@@ -66,10 +72,8 @@ tidied_totdeaths %>%
       color = sex
     )
   ) +
-  geom_line() + 
-  coord_cartesian(
-    ylim = c(0, 70000)
-  ) -> alldeathsplot
+  geom_line() +
+  coord_cartesian(ylim = c(0, 70000)) -> alldeathsplot
 
 ```
 
@@ -94,10 +98,7 @@ tidied_totdeaths %>%
       color = sex
     )
   ) +
-  geom_line() + 
-  coord_cartesian(
-    ylim = c(0, 40000)
-  )
+  geom_line() 
 
 ```
 ## Tidy data - years and quarters into doubles; keep only all age, assign to object "tidied_allagerates"
@@ -191,6 +192,19 @@ tidied_allagerates %>%
         select(time)
       )
     ) -> malepredicted 
+
+tidied_allagerates %>%
+  filter(sex == "F") %>% 
+  mutate(
+    female_onebreak_pred = predict(
+      femaleonebreak, 
+      newdata = tidied_allagerates %>% 
+        filter(sex == "F") %>% 
+        select(time)
+      )
+    ) -> femalepredicted 
+
+
 malepredicted %>%
   ggplot(
     aes(x = time)

@@ -4,7 +4,12 @@ output:
   word_document: default
   html_notebook: default
 ---
----
+
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
 # Introduction
 
 To undertake segmented regression (one and two break) for Scotland age group under 75 years. Employs full data range available (Q1 1990-Q2 2018)
@@ -174,7 +179,9 @@ tidied_UNDER75rates %>%
     aes(y = my.fitted_female_U75) 
   )
 ```
+
 #Model predicted values to data frame tidied_allagerates
+
 ```{r}
 tidied_UNDER75rates %>%
   filter(sex == "M") %>% 
@@ -218,7 +225,9 @@ obs_fit_both_U75$agegroup = age
 
 obs_fit_both_U75
 ```
+
 #Plot obs, predicted, and lm
+
 ```{r}
 obs_fit_both_U75 %>% 
   ggplot(
@@ -238,6 +247,8 @@ obs_fit_both_U75 %>%
 coef(my.seg_male_U75)
 coef(my.seg_female_U75)
 ```
+
+
 ##Plot using coefficients and geom_abline
 ```{r}
  # Get coeffiencents male
@@ -284,7 +295,9 @@ coef(my.seg_female_U75)
     "Figures/Segmentedplot_Scotland_U75.png", height=15, width=20, units="cm")
 
 ```
+
 ##Build up chart layers
+
 ```{r}
 observedplot_U75 <- obs_fit_both_U75 %>% 
   ggplot(
@@ -429,7 +442,9 @@ obs_fit_U75_2break$agegroup = age
 
 obs_fit_U75_2break
 ```
+
 ## Extract breakpoints and CI for 2 break model
+
 ```{r}
 breakpointmale_U75_2break <- my.seg_male2_U75$psi[, 2]
 breakpointfemale_U75_2break <- my.seg_female2_U75$psi[, 2]
@@ -487,7 +502,7 @@ save(
   breakpoint_low_CIfemale_U75_2break,
   breakpoint_up_CIfemale_U75_2break,
   
-  file = "summary_stats_under75.rdata"
+  file = "Data/summary_stats_under75.rdata"
 )
 
 

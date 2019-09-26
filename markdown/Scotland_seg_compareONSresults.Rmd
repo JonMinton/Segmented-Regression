@@ -7,7 +7,11 @@ output:
   html_notebook: default
   word_document: default
 ---
----
+
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
 
 # Introduction
 
@@ -251,7 +255,7 @@ obs_fit_both %>%
   )
 ```
 
-##Getsegmented regression coefficients
+##Get segmented regression coefficients
 
 Coefficients are used in order to be able to plot a continuation of the pre-break point trend. This differs slightly from the overall linear model, as it does not include the post-breakpoint data.
 
@@ -455,6 +459,7 @@ breakpoint1female_2break
 breakpoint1female_lowCI_2break
 breakpoint1female_upCI_2break
 ```
+
 
 ```{r}
 #CI for second female breakpoint

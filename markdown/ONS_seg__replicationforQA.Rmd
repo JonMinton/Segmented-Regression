@@ -3,9 +3,11 @@ title: "ONS segmented regression"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
 
 #Introduction
 To replicate ONS segmented regression with ONS England ASMR data Q41990-Q42017
@@ -95,7 +97,9 @@ summary (lmod_male_eng)
 summary (lmod_female_eng)
 
 ```
+
 ## Davies test - this is limited in a 2-break point analysis as currently the Davies test will only look for 1 breakpoint
+
 ```{r}
 davies_allmale_eng = davies.test(lmod_male_eng, ~time, k=107)
 davies_allfemale_eng = davies.test(lmod_female_eng, ~time, k=107)
@@ -108,8 +112,8 @@ davies_allfemale_eng
 ## Segmented regression function - one break point
 
 ```{r}
- my.seg_male_eng<-segmented(  lmod_male_eng, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
- my.seg_female_eng<-segmented(  lmod_female_eng, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ my.seg_male_eng   <- segmented(  lmod_male_eng, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
+ my.seg_female_eng <- segmented(  lmod_female_eng, seg_rate.Z = ~time, psi = NA, control = seg.control(K=1))
 
 ```
   
@@ -168,6 +172,7 @@ modelplot_f_eng <- tidied_rates_femaleeng %>%
 modelplot_m_eng
 modelplot_f_eng
 ```
+
 ##Model predicted values to data frame tidied_allagerates
 
 ```{r}
@@ -190,6 +195,7 @@ tidied_rates_femaleeng %>%
 plot(malefitted_eng$onebreak_fit)
 plot(femalefitted_eng$onebreak_fit)
 ```
+
 ##Combine male and female observed and predicted
 
 ```{r}
@@ -229,7 +235,7 @@ obs_fit_both_eng %>%
  # Get coeffiencents male
   b0_aspec_m_eng <- coef(my.seg_male_eng)[[1]]
   b1_aspec_m_eng <- coef(my.seg_male_eng)[[2]]
-  c1_aspec_m_eng <- coef(my.seg_male_eng)[[2]] + coef(my.seg_male)[[3]]
+  c1_aspec_m_eng <- coef(my.seg_male_eng)[[2]] + coef(my.seg_male_eng)[[3]]
   
   break1_aspec_m <- my.seg_male_eng$psi[[2]]
   
@@ -250,15 +256,12 @@ obs_fit_both_eng %>%
     aes (y=observed)) +
   geom_line ( 
     aes (y=predicted)) +
-  geom_abline(intercept = b0_aspec_m, slope = b1_aspec_m, color="blue", linetype="dashed") +
-    geom_abline(intercept = b0_aspec_f, slope = b1_aspec_f, color="red", linetype="dashed")
+  geom_abline(intercept = b0_aspec_m_eng, slope = b1_aspec_m_eng, color="blue", linetype="dashed") +
+    geom_abline(intercept = b0_aspec_f_eng, slope = b1_aspec_f_eng, color="red", linetype="dashed")
 
 
   ggsave (
     "Figures/Segmentedplot_England.png", height=10, width=15,units="cm"  )
   
-```
-```{r}
-
 ```
 

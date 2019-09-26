@@ -4,7 +4,12 @@ output:
   word_document: default
   html_notebook: default
 ---
----
+
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
 # Introduction
 
 To undertake segmented regression (one and two break) for Scotland age group over 75 years. Employs full data range available (Q1 1990-Q2 2018)
@@ -351,7 +356,7 @@ save(
   breakpointfemale_O75,
   breakpoint_low_CIfemale_O75,
   breakpoint_up_CIfemale_O75,
-file = "summary_stats_75andover.rdata"
+file = "Data/summary_stats_75andover.rdata"
 )
 
 ```

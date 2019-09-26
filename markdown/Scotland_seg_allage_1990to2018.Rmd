@@ -9,6 +9,11 @@ output:
   pdf_document: default
 ---
 
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
 # Introduction
 
 To undertake segmented regression (one and two-break models) for Scotland, all-ages, age-standardised mortality rates(ASMR). Employs full data range available (Q1 1990-Q2 2018). Quarterly annual ASMR employ the 2013 European Standard Popualtion, and were provided by National Records for Scotland. 
@@ -500,8 +505,8 @@ obs_fit_both_2018 %>%
 
 ```{r}
 
-load("summary_stats_75andover.rdata") # for 75 and over
-load("summary_stats_under75.rdata")
+load("Data/summary_stats_75andover.rdata") # for 75 and over
+load("Data/summary_stats_under75.rdata")
 
 breakpoint_summaries_allage <- tribble(
   ~gender,  ~num_breaks, ~break_num, ~lower, ~upper, ~point,
